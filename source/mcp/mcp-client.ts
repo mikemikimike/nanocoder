@@ -48,7 +48,7 @@ export class MCPClient {
 	 */
 	private toolMappingCache: Map<
 		string,
-		{serverName: string; originalName: string}
+		{serverName: string; originalName: string; readOnly: boolean}
 	> | null = null;
 	private serverConfigs: Map<string, MCPServer> = new Map();
 	private isConnected: boolean = false;
@@ -395,20 +395,33 @@ export class MCPClient {
 	}
 
 	/**
-	 * Map every discovered tool name to the server that owns it.
+	 * Map every discovered tool name to the server that owns it, plus the
+	 * server's `readOnlyHint` for that tool.
+	 *
+	 * `readOnly` here is the raw, untrusted server hint. It lives on this
+	 * mapping rather than on the registered tool entry on purpose: an entry's
+	 * `readOnly` flag is consumed by `ToolManager.isReadOnly`, which also
+	 * decides whether ACP captures a checkpoint before the call
+	 * (`acp-timeline.ts`) and whether the tool joins a parallel batch
+	 * (`tool-executor.tsx`). A server must not be able to talk itself out of a
+	 * restore point, so the hint is confined to plan-mode availability, which
+	 * is the only thing `docs/features/development-modes.md` promises it does.
 	 *
 	 * The result is memoised and returned by reference — treat it as read-only.
 	 * All callers only look tools up (`get`/`has`); mutating it would corrupt
 	 * the cache for everyone else until the next connect/disconnect.
 	 */
-	getToolMapping(): Map<string, {serverName: string; originalName: string}> {
+	getToolMapping(): Map<
+		string,
+		{serverName: string; originalName: string; readOnly: boolean}
+	> {
 		if (this.toolMappingCache) {
 			return this.toolMappingCache;
 		}
 
 		const mapping = new Map<
 			string,
-			{serverName: string; originalName: string}
+			{serverName: string; originalName: string; readOnly: boolean}
 		>();
 
 		for (const [serverName, serverTools] of this.serverTools.entries()) {
@@ -416,6 +429,7 @@ export class MCPClient {
 				mapping.set(mcpTool.name, {
 					serverName,
 					originalName: mcpTool.name,
+					readOnly: mcpTool.readOnly === true,
 				});
 			}
 		}
@@ -438,14 +452,12 @@ export class MCPClient {
 		tool: AISDKCoreTool;
 		handler: (args: Record<string, unknown>) => Promise<string>;
 		approval: ToolApprovalPolicy;
-		readOnly: boolean;
 	}> {
 		const entries: Array<{
 			name: string;
 			tool: AISDKCoreTool;
 			handler: (args: Record<string, unknown>) => Promise<string>;
 			approval: ToolApprovalPolicy;
-			readOnly: boolean;
 		}> = [];
 
 		// Get native tools once to avoid redundant calls
@@ -479,6 +491,11 @@ export class MCPClient {
 					// way to skip a normal-mode prompt, exactly as
 					// docs/configuration/mcp-configuration.md describes.
 					// (Yolo is bypassed centrally by resolveToolApproval.)
+					//
+					// For the same reason the hint is not copied onto the entry as
+					// `readOnly`: that field feeds ToolManager.isReadOnly, which
+					// gates ACP checkpoint capture and parallel batching. It stays
+					// on getToolMapping(), which only plan-mode filtering reads.
 					const readOnly = mcpTool.readOnly === true;
 					const isAutoApproved = this.isToolAutoApproved(toolName, serverName);
 					const approval: ToolApprovalPolicy = (_args, mode) => {
@@ -492,7 +509,6 @@ export class MCPClient {
 						tool: coreTool,
 						handler,
 						approval,
-						readOnly,
 					});
 				}
 			}

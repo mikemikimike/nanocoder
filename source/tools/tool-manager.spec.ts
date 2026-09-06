@@ -71,6 +71,51 @@ test('initializeMCP - handles server connection errors gracefully', async t => {
 	t.true(typeof results[0].error === 'string');
 });
 
+// Regression: `enabled: false` is the documented server-level gate, and the
+// only opt-out for headless runs where every MCP tool executes unattended. It
+// was carried through the config loader and then ignored, so a server the user
+// had switched off still connected and still exposed its tools.
+test('initializeMCP - skips servers marked enabled: false', async t => {
+	const manager = new ToolManager();
+	const progressResults: MCPInitResult[] = [];
+
+	const disabledServer: MCPServer = {
+		name: 'disabled-server',
+		command: 'non-existent-command',
+		transport: 'stdio',
+		enabled: false,
+	};
+
+	const results = await manager.initializeMCP([disabledServer], result => {
+		progressResults.push(result);
+	});
+
+	t.deepEqual(results, [], 'a disabled server produces no init result');
+	t.deepEqual(progressResults, [], 'and no progress callback');
+	t.is(
+		manager.getMCPClient(),
+		null,
+		'no client is created when every server is disabled',
+	);
+});
+
+test('initializeMCP - still connects a server with enabled: true', async t => {
+	const manager = new ToolManager();
+	const server: MCPServer = {
+		name: 'enabled-server',
+		command: 'non-existent-command',
+		transport: 'stdio',
+		enabled: true,
+	};
+
+	const results = await manager.initializeMCP([server]);
+
+	// An omitted `enabled` is covered by the surrounding tests, which all use
+	// servers without the field and expect a connection attempt.
+	t.is(results.length, 1);
+	t.is(results[0].serverName, 'enabled-server');
+});
+
 test('initializeMCP - calls onProgress callback for each server', async t => {
 	const manager = new ToolManager();
 	const progressResults: MCPInitResult[] = [];
@@ -759,27 +804,35 @@ test('plan mode hides every mutating built-in tool except its safe interaction a
 test('plan mode hides MCP tools unless the server annotates them read-only', t => {
 	const manager = new ToolManager();
 
-	// Mirror initializeMCP: entries land in the same registry as built-ins and
-	// the manager keeps the client that maps a tool name back to its server.
-	const mcpEntry = (name: string, readOnly: boolean) => ({
+	// Mirror initializeMCP: entries land in the same registry as built-ins with
+	// no readOnly flag (the server's hint stays on the tool mapping, out of
+	// reach of isReadOnly), and the manager keeps the client that owns it.
+	const mcpEntry = (name: string) => ({
 		name,
 		tool: {description: name, execute: async () => 'ok'} as never,
 		handler: async () => 'ok',
-		readOnly,
 	});
-	for (const entry of [
-		mcpEntry('create_issue', false),
-		mcpEntry('search_docs', true),
-	]) {
+	for (const entry of [mcpEntry('create_issue'), mcpEntry('search_docs')]) {
 		manager.registerSkillTool(entry);
 	}
 	(manager as any).mcpClient = {
 		getToolMapping: () =>
 			new Map([
-				['create_issue', {serverName: 'gh', originalName: 'create_issue'}],
-				['search_docs', {serverName: 'gh', originalName: 'search_docs'}],
+				[
+					'create_issue',
+					{serverName: 'gh', originalName: 'create_issue', readOnly: false},
+				],
+				[
+					'search_docs',
+					{serverName: 'gh', originalName: 'search_docs', readOnly: true},
+				],
 			]),
 	};
+
+	// The annotation gates plan-mode availability and nothing else: neither
+	// tool is read-only as far as checkpointing or parallel batching is
+	// concerned.
+	t.false(manager.isReadOnly('search_docs'));
 
 	const plan = manager.getAvailableToolNames(undefined, 'plan');
 	t.false(

@@ -297,10 +297,12 @@ test('MCPClient.getToolMapping: maps tools to servers', t => {
 	t.deepEqual(mapping.get('tool1'), {
 		serverName: 'test-server',
 		originalName: 'tool1',
+		readOnly: false,
 	});
 	t.deepEqual(mapping.get('tool2'), {
 		serverName: 'test-server',
 		originalName: 'tool2',
+		readOnly: false,
 	});
 });
 
@@ -331,10 +333,12 @@ test('MCPClient.getToolMapping: handles multiple servers', t => {
 	t.deepEqual(mapping.get('tool1'), {
 		serverName: 'server1',
 		originalName: 'tool1',
+		readOnly: false,
 	});
 	t.deepEqual(mapping.get('tool2'), {
 		serverName: 'server2',
 		originalName: 'tool2',
+		readOnly: false,
 	});
 });
 
@@ -886,10 +890,11 @@ testOrSkip('MCPClient.getToolMapping: returns mapping from connected HTTP server
 		const [toolName, mappingInfo] = firstMapping;
 
 		t.is(typeof toolName, 'string');
-		t.deepEqual(mappingInfo, {
-			serverName: 'test-deepwiki',
-			originalName: toolName,
-		});
+		t.is(mappingInfo.serverName, 'test-deepwiki');
+		t.is(mappingInfo.originalName, toolName);
+		// Whether the live server annotates this tool is its business; the
+		// mapping must always resolve the hint to a boolean.
+		t.is(typeof mappingInfo.readOnly, 'boolean');
 	}
 
 	await client.disconnect();
@@ -1023,8 +1028,12 @@ test('MCPClient: non-whitelisted tools still require approval', async t => {
 // the approval slot defaults to "denied" because no user is present).
 // ============================================================================
 
-/** Build a one-tool MCP client with the given alwaysAllow list / annotation. */
-function mcpEntryFor(
+/**
+ * Build a one-tool MCP client with the given alwaysAllow list / annotation.
+ * Returns both the registered entry (what the approval resolver sees) and the
+ * tool mapping record (what plan-mode filtering sees).
+ */
+function mcpFixtureFor(
 	toolName: string,
 	opts: {alwaysAllow?: string[]; readOnly?: boolean} = {},
 ) {
@@ -1048,7 +1057,17 @@ function mcpEntryFor(
 
 	const entry = client.getToolEntries().find(e => e.name === toolName);
 	if (!entry) throw new Error(`fixture tool ${toolName} not registered`);
-	return entry;
+	const mapping = client.getToolMapping().get(toolName);
+	if (!mapping) throw new Error(`fixture tool ${toolName} not mapped`);
+	return {entry, mapping};
+}
+
+/** Just the registered entry, for the approval-policy tests. */
+function mcpEntryFor(
+	toolName: string,
+	opts: {alwaysAllow?: string[]; readOnly?: boolean} = {},
+) {
+	return mcpFixtureFor(toolName, opts).entry;
 }
 
 test('MCPClient: plan mode requires approval for an alwaysAllow-ed tool', async t => {
@@ -1087,13 +1106,24 @@ test('MCPClient: auto-accept and yolo still run tools unattended', async t => {
 });
 
 test('MCPClient: readOnlyHint unblocks plan mode but never normal mode', async t => {
-	const readOnly = mcpEntryFor('list_issues', {readOnly: true});
+	const annotated = mcpFixtureFor('list_issues', {readOnly: true});
+	const readOnly = annotated.entry;
 	const unannotated = mcpEntryFor('list_issues');
 
-	t.true(readOnly.readOnly);
+	t.true(annotated.mapping.readOnly);
 	t.false(
-		unannotated.readOnly,
+		mcpFixtureFor('list_issues').mapping.readOnly,
 		'an absent readOnlyHint must fail safe to "may mutate"',
+	);
+
+	// The hint lives on the tool mapping, which only plan-mode filtering reads.
+	// It must NOT reach the registered entry: ToolManager.isReadOnly() feeds ACP
+	// checkpoint capture and parallel batching, and a server must not be able to
+	// talk itself out of a restore point.
+	t.is(
+		(readOnly as {readOnly?: boolean}).readOnly,
+		undefined,
+		'a server-supplied readOnlyHint must not become the entry readOnly flag',
 	);
 
 	// A server-annotated reader is the one thing plan mode may run.
@@ -1333,15 +1363,30 @@ test('MCPClient.connectToServer: carries annotations.readOnlyHint onto discovere
 		'only an explicit boolean true counts — no truthiness coercion',
 	);
 
-	// ...and so do the registry entries plan mode filters on.
-	const entries = new Map(
-		client.getToolEntries().map(entry => [entry.name, entry.readOnly]),
+	// ...and so does the tool mapping plan mode filters on.
+	const mapped = new Map(
+		[...client.getToolMapping()].map(([name, record]) => [
+			name,
+			record.readOnly,
+		]),
 	);
-	t.true(entries.get('reader'));
-	t.false(entries.get('writer'));
-	t.false(entries.get('unannotated'));
-	t.false(entries.get('empty_annotations'));
-	t.false(entries.get('truthy_not_true'));
+	t.true(mapped.get('reader'));
+	t.false(mapped.get('writer'));
+	t.false(mapped.get('unannotated'));
+	t.false(mapped.get('empty_annotations'));
+	t.false(mapped.get('truthy_not_true'));
+
+	// But it must stop there. Copying the hint onto the registry entry would
+	// hand it to ToolManager.isReadOnly(), which suppresses ACP checkpoint
+	// capture (acp-timeline.ts) and enables parallel batching
+	// (tool-executor.tsx) — neither of which a server may decide about itself.
+	for (const entry of client.getToolEntries()) {
+		t.is(
+			(entry as {readOnly?: boolean}).readOnly,
+			undefined,
+			`${entry.name} must not carry the server hint as an entry readOnly flag`,
+		);
+	}
 
 	// The annotation must decide plan mode end to end, straight off the wire.
 	t.false(
@@ -1393,4 +1438,39 @@ test('MCPClient.getToolMapping: is cached and invalidated on connect/disconnect'
 	const afterDisconnect = client.getToolMapping();
 	t.not(first, afterDisconnect, 'the cache is dropped on disconnect');
 	t.is(afterDisconnect.size, 0);
+});
+
+test('MCPClient.getToolMapping: a mapping taken before connect is not left stale', async t => {
+	const okClient = {
+		async connect() {},
+		async listTools() {
+			return {
+				tools: [
+					{
+						name: 'late_tool',
+						description: 'Discovered after the first mapping call',
+						inputSchema: {type: 'object', properties: {}},
+					},
+				],
+			};
+		},
+		async close() {},
+	};
+
+	const client = new SeamMCPClient(okClient);
+
+	// Anything that asks before the servers are up caches an empty Map. If
+	// connecting did not invalidate it, plan mode would stop recognising these
+	// names as MCP tools and wave every one of them through unfiltered.
+	const beforeConnect = client.getToolMapping();
+	t.is(beforeConnect.size, 0);
+
+	await client.connectToServer(httpServer);
+
+	const afterConnect = client.getToolMapping();
+	t.not(beforeConnect, afterConnect, 'the cache is dropped on connect');
+	t.true(
+		afterConnect.has('late_tool'),
+		'tools discovered after the first call must still be mapped',
+	);
 });

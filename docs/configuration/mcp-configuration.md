@@ -198,7 +198,7 @@ These fields work with all transport types:
 |-------|-------------|
 | `description` | Human-readable description shown in `/mcp` output |
 | `alwaysAllow` | Array of tool names that skip confirmation prompts |
-| `enabled` | Whether the server is active (default: `true`) |
+| `enabled` | Whether the server is active (default: `true`). `false` skips it entirely — no connection, no tools registered |
 | `tags` | Array of tags for categorization |
 
 ## Auto-Approve Tools
@@ -241,8 +241,10 @@ Two consequences worth calling out:
   no effect. Availability in plan mode is decided solely by the server's
   `readOnlyHint` annotation, and a tool with no annotation is treated as a
   possible mutation and hidden. Note this is only about *availability*:
-  `readOnlyHint` is supplied by the same server being gated, so it never skips a
-  confirmation prompt in normal mode — only your `alwaysAllow` list does that.
+  `readOnlyHint` is supplied by the same server being gated, so it is confined
+  to that one decision. It never skips a confirmation prompt in normal mode
+  (only your `alwaysAllow` list does that), never suppresses a checkpoint before
+  the call, and never promotes the tool into a parallel batch.
 - **Headless runs every MCP tool unattended, with no per-server opt-out.**
   Headless is the internal mode the daemon uses for triggered skill runs, where
   no user is present to answer a prompt. MCP tools there behave like

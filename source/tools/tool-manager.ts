@@ -98,13 +98,21 @@ export class ToolManager {
 	}
 
 	/**
-	 * Initialize MCP servers and register their tools
+	 * Initialize MCP servers and register their tools.
+	 *
+	 * Servers marked `"enabled": false` are skipped entirely — no connection,
+	 * no tools, no init result. That flag is the documented server-level gate
+	 * (see docs/configuration/mcp-configuration.md), and it is the only opt-out
+	 * for headless runs, where every MCP tool executes unattended. An absent
+	 * flag means enabled, so existing configs are unaffected.
 	 */
 	async initializeMCP(
 		servers: MCPServer[],
 		onProgress?: (result: MCPInitResult) => void,
 	): Promise<MCPInitResult[]> {
-		if (servers && servers.length > 0) {
+		const enabledServers = servers?.filter(server => server.enabled !== false);
+
+		if (enabledServers && enabledServers.length > 0) {
 			// Dynamic import — only paid for by sessions with configured MCP servers.
 			const {MCPClient} = await import('@/mcp/mcp-client');
 			this.mcpClient = new MCPClient();
@@ -118,7 +126,7 @@ export class ToolManager {
 			});
 
 			const results = await this.mcpClient.connectToServers(
-				servers,
+				enabledServers,
 				onProgress,
 			);
 
@@ -222,6 +230,9 @@ export class ToolManager {
 			// can't be enumerated in MODE_EXCLUDED_TOOLS (their names come from
 			// the server), so plan mode gates them on the server's read-only
 			// annotation instead — an unannotated tool may mutate, so it's hidden.
+			// The annotation is read off getToolMapping() rather than the registry
+			// entry: it is a server-supplied hint, and isReadOnly() also decides
+			// checkpointing and parallel batching, which it must not influence.
 			if (developmentMode === 'plan' || developmentMode === 'headless') {
 				const mcpTools =
 					developmentMode === 'plan'
@@ -230,8 +241,9 @@ export class ToolManager {
 				names = names.filter(n => {
 					const meta = this.customTools.get(n);
 					if (!meta) {
-						if (mcpTools?.has(n)) {
-							return this.isReadOnly(n);
+						const mcpTool = mcpTools?.get(n);
+						if (mcpTool) {
+							return mcpTool.readOnly;
 						}
 						return true;
 					}
