@@ -102,6 +102,7 @@ export function InteractiveApp({
 	const [restoredDraft, setRestoredDraft] =
 		React.useState<RestoredInputDraft | null>(null);
 	const drainInProgressRef = React.useRef(false);
+	const lastFailedDrainIdRef = React.useRef<string | null>(null);
 	const [drainAttempt, setDrainAttempt] = React.useState(0);
 
 	const handleToggleCompactDisplay = () => {
@@ -200,6 +201,8 @@ export function InteractiveApp({
 		pendingToolConfirmation !== null ||
 		appState.planReviewState?.show === true ||
 		appState.pendingPlanProceed !== null;
+	const queuedMessageCount = userMessageQueue.queuedMessages.length;
+	const queuedMessageId = userMessageQueue.queuedMessages[0]?.id;
 
 	React.useEffect(() => {
 		// Re-run after a successful dispatch settles, once its queue update has
@@ -209,8 +212,11 @@ export function InteractiveApp({
 			queueDrainBlocked ||
 			appState.activeMode !== null ||
 			appState.isSettingsMode ||
+			!appState.client ||
+			!appState.toolManager ||
 			!appState.isConversationComplete ||
-			userMessageQueue.queuedMessages.length === 0 ||
+			queuedMessageCount === 0 ||
+			lastFailedDrainIdRef.current === queuedMessageId ||
 			drainInProgressRef.current
 		) {
 			return;
@@ -220,28 +226,37 @@ export function InteractiveApp({
 		let started = false;
 		const timeout = setTimeout(() => {
 			started = true;
-			void userMessageQueue
-				.drainNextMessage(async message => {
-					if (!appState.client || !appState.toolManager) return false;
-					await handleUserSubmit(
-						message.message,
-						message.displayValue,
-						message.images,
-					);
-					return true;
-				})
+			let drainedMessageId = queuedMessageId ?? null;
+			void Promise.resolve()
+				.then(() =>
+					userMessageQueue.drainNextMessage(async message => {
+						drainedMessageId = message.id;
+						await handleUserSubmit(
+							message.message,
+							message.displayValue,
+							message.images,
+						);
+						return true;
+					}),
+				)
 				.then(
 					dispatched => {
 						drainInProgressRef.current = false;
+						if (!dispatched) {
+							// Keep a failed head queued, but do not immediately re-enter
+							// the effect while it still has the same identity.
+							lastFailedDrainIdRef.current = drainedMessageId;
+							return;
+						}
+						lastFailedDrainIdRef.current = null;
 						// The queue state update happens before the dispatch resolves. A
 						// separate render is needed to notice and drain the next item after
 						// the dispatched turn returns to idle.
-						if (dispatched) {
-							setDrainAttempt(attempt => attempt + 1);
-						}
+						setDrainAttempt(attempt => attempt + 1);
 					},
 					() => {
 						drainInProgressRef.current = false;
+						lastFailedDrainIdRef.current = drainedMessageId;
 					},
 				);
 		}, 0);
@@ -259,7 +274,8 @@ export function InteractiveApp({
 		queueDrainBlocked,
 		handleUserSubmit,
 		userMessageQueue.drainNextMessage,
-		userMessageQueue.queuedMessages.length,
+		queuedMessageCount,
+		queuedMessageId,
 		drainAttempt,
 	]);
 

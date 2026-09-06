@@ -247,6 +247,7 @@ test('declining execution keeps Plan Mode active and asks for revisions', t => {
 
 	handlers.handlePlanModify();
 
+	t.deepEqual(spies.setIsConversationComplete.calls, [[false]]);
 	t.deepEqual(spies.setPlanReviewState.calls, [[null]]);
 	t.deepEqual(spies.setDevelopmentMode.calls, []);
 	const notice = spies.addToChatQueue.calls.at(-1)?.[0];
@@ -262,6 +263,18 @@ test('declining execution keeps Plan Mode active and asks for revisions', t => {
 				'what to change',
 			),
 	);
+});
+
+test('asking for clarification blocks queued prompts until the turn starts', async t => {
+	const {handlers, spies} = setup({developmentMode: 'plan'});
+
+	await handlers.handlePlanAskMore();
+
+	t.deepEqual(spies.setIsConversationComplete.calls, [[false]]);
+	t.deepEqual(spies.setPlanReviewState.calls, [[null]]);
+	t.deepEqual(spies.handleChatMessage.calls, [
+		['please ask me any additional clarifying questions before proceeding'],
+	]);
 });
 
 async function withMockConfig(

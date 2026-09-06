@@ -162,10 +162,28 @@ function makeProps(o: Overrides = {}) {
 				displayValue: '',
 			}),
 			removeMessage: noop,
-			drainNextMessage: o.drainNextMessage ?? (() => false),
+			drainNextMessage: o.drainNextMessage ?? (async () => false),
 		},
 		handleIdeSelect: noop,
 	} as never;
+}
+
+function QueuedPromptHarness({overrides}: {overrides: Overrides}) {
+	const userMessageQueue = useUserMessageQueue();
+
+	React.useEffect(() => {
+		userMessageQueue.enqueueMessage({
+			message: 'queued prompt',
+			displayValue: 'queued prompt',
+		});
+	}, [userMessageQueue.enqueueMessage]);
+
+	return (
+		<InteractiveApp
+			{...makeProps(overrides)}
+			userMessageQueue={userMessageQueue}
+		/>
+	);
 }
 
 test('renders without crashing in default state', t => {
@@ -174,77 +192,113 @@ test('renders without crashing in default state', t => {
 });
 
 test('does not drain queued prompts while a turn is generating', async t => {
-	let submitted = false;
+	let dispatchAttempts = 0;
 	const {unmount} = renderWithTheme(
-		<InteractiveApp
-			{...makeProps({
+		<QueuedPromptHarness
+			overrides={{
 				startChat: true,
 				client: {},
 				toolManager: {},
 				isGenerating: true,
 				isConversationComplete: true,
-				queuedMessages: [
-					{id: 'queued-1', message: 'queued prompt', displayValue: 'queued prompt'},
-				],
 				handleUserSubmit: async () => {
-					submitted = true;
+					dispatchAttempts++;
 				},
-			})}
+			}}
 		/>,
 	);
 
 	await new Promise(resolve => setTimeout(resolve, 25));
-	t.false(submitted);
+	t.is(dispatchAttempts, 0);
 	unmount();
 });
 
 test('does not drain queued prompts while a modal mode is active', async t => {
-	let submitted = false;
+	let dispatchAttempts = 0;
 	const {unmount} = renderWithTheme(
-		<InteractiveApp
-			{...makeProps({
+		<QueuedPromptHarness
+			overrides={{
 				startChat: true,
 				client: {},
 				toolManager: {},
 				activeMode: 'model',
 				isConversationComplete: true,
-				queuedMessages: [
-					{id: 'queued-1', message: 'queued prompt', displayValue: 'queued prompt'},
-				],
 				handleUserSubmit: async () => {
-					submitted = true;
+					dispatchAttempts++;
 				},
-			})}
+			}}
 		/>,
 	);
 
 	await new Promise(resolve => setTimeout(resolve, 25));
-	t.false(submitted);
+	t.is(dispatchAttempts, 0);
 	unmount();
 });
 
 test('does not drain queued prompts while plan review is active', async t => {
-	let submitted = false;
+	let dispatchAttempts = 0;
 	const {unmount} = renderWithTheme(
-		<InteractiveApp
-			{...makeProps({
+		<QueuedPromptHarness
+			overrides={{
 				startChat: true,
 				client: {},
 				toolManager: {},
 				planReviewState: {show: true, originalMessage: 'make a plan'},
 				isConversationComplete: true,
-				queuedMessages: [
-					{id: 'queued-1', message: 'queued prompt', displayValue: 'queued prompt'},
-				],
 				handleUserSubmit: async () => {
-					submitted = true;
+					dispatchAttempts++;
 				},
-			})}
+			}}
 		/>,
 	);
 
 	await new Promise(resolve => setTimeout(resolve, 25));
-	t.false(submitted);
+	t.is(dispatchAttempts, 0);
+	unmount();
+});
+
+test('does not drain queued prompts while plan proceed is pending', async t => {
+	let dispatchAttempts = 0;
+	const {unmount} = renderWithTheme(
+		<QueuedPromptHarness
+			overrides={{
+				startChat: true,
+				client: {},
+				toolManager: {},
+				developmentMode: 'plan',
+				pendingPlanProceed: 'approved plan',
+				isConversationComplete: true,
+				handleUserSubmit: async () => {
+					dispatchAttempts++;
+				},
+			}}
+		/>,
+	);
+
+	await new Promise(resolve => setTimeout(resolve, 25));
+	t.is(dispatchAttempts, 0);
+	unmount();
+});
+
+test('does not immediately retry a failed queued dispatch', async t => {
+	let dispatchAttempts = 0;
+	const {unmount} = renderWithTheme(
+		<QueuedPromptHarness
+			overrides={{
+				startChat: true,
+				client: {},
+				toolManager: {},
+				isConversationComplete: true,
+				handleUserSubmit: async () => {
+					dispatchAttempts++;
+					throw new Error('dispatch failed');
+				},
+			}}
+		/>,
+	);
+
+	await new Promise(resolve => setTimeout(resolve, 50));
+	t.is(dispatchAttempts, 1);
 	unmount();
 });
 

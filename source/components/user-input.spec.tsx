@@ -450,6 +450,37 @@ test('UserInput loads selected queued message for editing while idle', async t =
 	unmount();
 });
 
+test('UserInput loads selected queued message for editing while busy', async t => {
+	let removedId = '';
+
+	const {stdin, lastFrame, unmount} = render(
+		<TestWrapper>
+			<UserInput
+				forceFocus={true}
+				isBusy={true}
+				queuedMessages={[
+					{id: 'queued-1', message: 'first', displayValue: 'first queued'},
+					{id: 'queued-2', message: 'second', displayValue: 'second queued'},
+				]}
+				onRemoveQueuedMessage={id => {
+					removedId = id;
+				}}
+			/>
+		</TestWrapper>,
+	);
+
+	stdin.write('\u001B[B');
+	await wait(50);
+	stdin.write('\u001B[B');
+	await wait(50);
+	stdin.write('\r');
+	await wait(50);
+
+	t.is(removedId, 'queued-2');
+	t.regex(lastFrame()!, /second queued/);
+	unmount();
+});
+
 test('UserInput up arrow returns from the first queued message to the input', async t => {
 	const {stdin, lastFrame, unmount} = render(
 		<TestWrapper>
