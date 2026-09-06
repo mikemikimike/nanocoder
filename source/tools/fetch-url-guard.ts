@@ -2,12 +2,13 @@
  * Reject fetch_url targets that are loopback, private, link-local, or cloud
  * metadata — on the *request* URL only.
  *
- * Known gaps (not this file):
- * - HTTP redirects: `@nanocollective/get-md` fetches with `redirect: "follow"`,
- *   so `http://attacker.example/r` → `http://169.254.169.254/` still returns
- *   the private body. Tracked in #1089.
- * - DNS rebinding: a public name can resolve to a blocked address at request
- *   time; this check is hostname-string / parsed IP, not a pinned lookup.
+ * `fetch-url.tsx` resolves redirects itself and runs every hop through this
+ * same check, so a `http://attacker.example/r` → `http://169.254.169.254/`
+ * chain is rejected at the hop rather than followed (#1089).
+ *
+ * Known gap (not this file): DNS rebinding. A public name can resolve to a
+ * blocked address at request time; this check is hostname-string / parsed IP,
+ * not a pinned lookup.
  */
 
 function parseIpv4(host: string): number | null {
