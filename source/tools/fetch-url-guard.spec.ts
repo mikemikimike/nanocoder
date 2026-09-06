@@ -8,6 +8,8 @@ test('assertPublicHttpUrl allows public http(s)', t => {
 	t.notThrows(() => assertPublicHttpUrl('http://10.example.com'));
 	t.notThrows(() => assertPublicHttpUrl('http://fc.google.com'));
 	t.notThrows(() => assertPublicHttpUrl('http://172.32.0.1'));
+	t.notThrows(() => assertPublicHttpUrl('http://localhost.example.com'));
+	t.notThrows(() => assertPublicHttpUrl('http://mylocalhost.dev'));
 });
 
 test('assertPublicHttpUrl rejects format and non-http', t => {
@@ -30,6 +32,9 @@ test('assertPublicHttpUrl rejects loopback, metadata, RFC1918, IPv6 local', t =>
 		'http://metadata./',
 		'http://localhost:3000',
 		'http://localhost./',
+		'http://foo.localhost',
+		'http://api.dev.localhost:8080/',
+		'http://foo.localhost./',
 		'http://10.0.0.1',
 		'http://192.168.1.1',
 		'http://172.16.0.1',

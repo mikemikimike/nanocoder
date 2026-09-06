@@ -72,6 +72,9 @@ function isBlockedFetchHost(hostname: string): boolean {
 	// different hostname string; Node does not strip them.
 	const host = hostname.toLowerCase().replace(/\.$/, '');
 	if (METADATA_HOSTS.has(host)) return true;
+	// RFC 6761 reserves the whole `.localhost` zone for loopback, and
+	// systemd-resolved resolves every label under it to 127.0.0.1.
+	if (host.endsWith('.localhost')) return true;
 
 	const bare = host.replace(/^\[|\]$/g, '');
 	const v4 = parseIpv4(bare) ?? ipv4FromMappedIpv6(bare);
