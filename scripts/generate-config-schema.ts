@@ -86,6 +86,21 @@ const definitionRenames: Record<string, string> = {
 	'Record<string,unknown>': 'RecordStringUnknown',
 };
 
+/**
+ * HooksConfig is `Partial<Record<HookEvent, HookDefinition[]>>`, and HookEvent
+ * is derived from the HOOK_EVENTS array rather than being a named alias, so the
+ * generator expands it to the full literal union in the definition name. A
+ * fixed rename entry would silently stop matching the day a lifecycle event is
+ * added, so match it by shape instead.
+ */
+const hooksConfigName = /^Partial<Record<.+,HookDefinition\[]>>$/;
+
+function resolveDefinitionName(rawName: string): string {
+	if (definitionRenames[rawName]) return definitionRenames[rawName];
+	if (hooksConfigName.test(rawName)) return 'HooksConfig';
+	return rawName;
+}
+
 type JsonNode = Record<string, unknown>;
 
 // Recursively rewrite $ref pointers to the cleaned names.
@@ -101,7 +116,7 @@ function rewriteRefs(node: unknown): unknown {
 		const match = /^#\/definitions\/(.+)$/.exec(ref);
 		if (match) {
 			const rawName = decodeURIComponent(match[1]);
-			const newName = definitionRenames[rawName] ?? rawName;
+			const newName = resolveDefinitionName(rawName);
 			if (newName !== rawName) {
 				obj['$ref'] = `#/definitions/${newName}`;
 			}
@@ -118,8 +133,7 @@ function rewriteRefs(node: unknown): unknown {
 function renameDefinitions(definitions: Record<string, unknown>): void {
 	const renamed: Record<string, unknown> = {};
 	for (const [name, def] of Object.entries(definitions)) {
-		const newName = definitionRenames[name] ?? name;
-		renamed[newName] = rewriteRefs(def);
+		renamed[resolveDefinitionName(name)] = rewriteRefs(def);
 	}
 	for (const oldName of Object.keys(definitionRenames)) {
 		delete renamed[oldName];
@@ -215,6 +229,7 @@ function main(): void {
 	setRequired(definitions, 'MCPServerConfig', ['name', 'transport']);
 	setRequired(definitions, 'OpenRouterPlugin', ['id']);
 	setRequired(definitions, 'ModeProviderConfig', ['provider', 'model']);
+	setRequired(definitions, 'HookDefinition', ['command']);
 
 	// lspServers is an inline array with an anonymous item schema (not a
 	// named definition).  The type requires name, command, languages.

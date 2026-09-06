@@ -312,6 +312,84 @@ test('modeProviders accepts all valid mode keys together', t => {
 });
 
 // ---------------------------------------------------------------------------
+// hooks (HooksConfig)
+// ---------------------------------------------------------------------------
+
+test('hooks accepts the documented example', t => {
+	assertValid(t, 'hooks example', {
+		nanocoder: {
+			hooks: {
+				'post-tool-use': [
+					{
+						matchTools: ['write_file', 'string_replace'],
+						command: 'biome check --write "$NANOCODER_FILE"',
+					},
+				],
+				'pre-tool-use': [
+					{
+						name: 'no-env',
+						command: '.nanocoder/hooks/guard.sh',
+						timeout: 5000,
+					},
+				],
+				'session-start': [{command: 'git log --oneline -5'}],
+			},
+		},
+	});
+});
+
+test('hooks accepts every lifecycle event', t => {
+	const hooks = Object.fromEntries(
+		Object.keys(schema.definitions.HooksConfig.properties).map(event => [
+			event,
+			[{command: 'true'}],
+		]),
+	);
+	assertValid(t, 'hooks all events', {nanocoder: {hooks}});
+});
+
+test('hooks event list matches HOOK_EVENTS', t => {
+	t.deepEqual(Object.keys(schema.definitions.HooksConfig.properties).sort(), [
+		'post-tool-use',
+		'pre-compact',
+		'pre-tool-use',
+		'session-end',
+		'session-start',
+		'user-prompt-submit',
+	]);
+});
+
+test('hooks rejects an unknown lifecycle event', t => {
+	assertInvalid(t, 'unknown event', {
+		nanocoder: {hooks: {'pre-tool-abuse': [{command: 'true'}]}},
+	});
+});
+
+test('hook entry requires command', t => {
+	assertInvalid(t, 'hook without command', {
+		nanocoder: {hooks: {'pre-tool-use': [{name: 'no-command'}]}},
+	});
+});
+
+test('hook entry rejects unknown keys', t => {
+	assertInvalid(t, 'hook with bogus key', {
+		nanocoder: {hooks: {'pre-tool-use': [{command: 'true', bogus: 1}]}},
+	});
+});
+
+test('hook timeout must be a number', t => {
+	assertInvalid(t, 'string timeout', {
+		nanocoder: {hooks: {'pre-tool-use': [{command: 'true', timeout: '5s'}]}},
+	});
+});
+
+test('hooks value must be an array', t => {
+	assertInvalid(t, 'hooks object not array', {
+		nanocoder: {hooks: {'pre-tool-use': {command: 'true'}}},
+	});
+});
+
+// ---------------------------------------------------------------------------
 // retries (RetryLimitsConfig)
 // ---------------------------------------------------------------------------
 
@@ -407,6 +485,7 @@ test('DiskNanocoderConfig exposes every on-disk key', t => {
 		'nanocoderTools',
 		'modeProviders',
 		'retries',
+		'hooks',
 	];
 	for (const key of expected) {
 		t.true(

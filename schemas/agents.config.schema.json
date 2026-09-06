@@ -57,6 +57,10 @@
 					"type": "object",
 					"additionalProperties": false
 				},
+				"hooks": {
+					"$ref": "#/definitions/HooksConfig",
+					"description": "Shell commands run at fixed points in the agent loop, keyed by lifecycle\nevent. Project-local, so this carries the same code-execution weight as\n`mcpServers` above."
+				},
 				"lspServers": {
 					"description": "LSP server configurations (optional — auto-discovery enabled by default).",
 					"items": {
@@ -139,6 +143,33 @@
 			},
 			"type": "object",
 			"additionalProperties": false
+		},
+		"HookDefinition": {
+			"description": "A single lifecycle hook: one shell command, optionally scoped to a set of\ntools (tool events only) and with its own timeout.",
+			"properties": {
+				"command": {
+					"description": "Shell command to run. Receives hook context via NANOCODER_* env vars.",
+					"type": "string"
+				},
+				"matchTools": {
+					"description": "Tool names this hook applies to. Omitted means \"every tool\".\nIgnored by non-tool events.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"name": {
+					"description": "Optional label used in transcripts and /doctor instead of the command.",
+					"type": "string"
+				},
+				"timeout": {
+					"description": "Milliseconds before the hook is killed. Defaults to 30s, except\n`session-end`, which defaults to 2s so it fits inside the shutdown budget.\nA timed-out hook never blocks — only a deliberate non-zero exit does.",
+					"type": "number"
+				}
+			},
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["command"]
 		},
 		"MCPServerConfig": {
 			"properties": {
@@ -460,6 +491,48 @@
 				},
 				"threshold": {
 					"type": "number"
+				}
+			},
+			"type": "object",
+			"additionalProperties": false
+		},
+		"HooksConfig": {
+			"properties": {
+				"post-tool-use": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
+				},
+				"pre-compact": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
+				},
+				"pre-tool-use": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
+				},
+				"session-end": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
+				},
+				"session-start": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
+				},
+				"user-prompt-submit": {
+					"items": {
+						"$ref": "#/definitions/HookDefinition"
+					},
+					"type": "array"
 				}
 			},
 			"type": "object",

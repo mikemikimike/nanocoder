@@ -319,7 +319,7 @@ Run your own shell commands at fixed points in the agent loop — before/after a
 }
 ```
 
-Each entry takes `command` (required), plus optional `matchTools` (tool names the hook applies to; omitted means all), `timeout` (ms, default 30000), and `name` (label used in messages and `/doctor`). Context arrives as `NANOCODER_*` environment variables — `$VAR` references inside `command` are deliberately left unexpanded at load time so the shell sees them.
+Each entry takes `command` (required), plus optional `matchTools` (tool names the hook applies to; omitted means all), `timeout` (ms, default 30000, except `session-end` which defaults to 2000 to fit inside the shutdown budget), and `name` (label used in messages and `/doctor`). Context arrives as `NANOCODER_*` environment variables — `$VAR` references inside `command` are deliberately left unexpanded at load time so the shell sees them.
 
 Hooks are project-local shell commands, so they carry the same code-execution weight as `mcpServers` in the same file and are gated by the same directory-trust prompt. See [Lifecycle Hooks](../features/hooks.md) for the full event list, environment contract, and blocking semantics.
 

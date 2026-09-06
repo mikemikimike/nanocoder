@@ -678,9 +678,12 @@ export function useAppHandlers(props: UseAppHandlersProps): AppHandlers {
 			// The VS Code editor pill is appended at the end of the message
 			// (\n\n[@…]<!--vscode-context-->…<!--/vscode-context-->); strip it
 			// so it doesn't leak into the parsed args.
-			const isSlashCommand = message.startsWith('/');
+			// Trimmed to agree with parseInput, which is what actually routes the
+			// message downstream — `  /rename foo` is a slash command there.
+			const trimmedMessage = message.trim();
+			const isSlashCommand = trimmedMessage.startsWith('/');
 			const commandArgs = isSlashCommand
-				? message
+				? trimmedMessage
 						.replace(
 							/\n\n\[@[^\]]+\]<!--vscode-context-->[\s\S]*?<!--\/vscode-context-->\s*$/,
 							'',
@@ -697,7 +700,12 @@ export function useAppHandlers(props: UseAppHandlersProps): AppHandlers {
 			// (handleMessageSubmission dispatches on parseInput, which keys bash off
 			// a leading `!`). Both must therefore leave the pending context buffer
 			// undrained, so it reaches the next prompt that actually goes to the model.
-			const isLocalAction = isSlashCommand || message.trim().startsWith('!');
+			//
+			// Both checks are trimmed because parseInput trims before testing for
+			// either prefix — `  /help` and `  !ls` are still local actions there,
+			// so an untrimmed check here would prefix them and reroute them to the
+			// model.
+			const isLocalAction = isSlashCommand || trimmedMessage.startsWith('!');
 			let submittedMessage = message;
 			if (!isLocalAction) {
 				const gate = await runLifecycleHooks('user-prompt-submit', {

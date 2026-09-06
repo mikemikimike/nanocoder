@@ -724,8 +724,13 @@ export async function handleMessageSubmission(
 		return;
 	}
 
-	if (message.startsWith('/')) {
-		await handleSlashCommand(message, options);
+	// Trimmed, to agree with parseInput above: `  /help` is a slash command
+	// there, so dispatching on the raw string sent it to the model as chat
+	// instead. handleSlashCommand slices from the leading `/`, so it needs the
+	// trimmed form rather than the original.
+	const trimmed = message.trim();
+	if (trimmed.startsWith('/')) {
+		await handleSlashCommand(trimmed, options);
 		return;
 	}
 

@@ -178,21 +178,29 @@ export const HOOK_EVENTS = [
 
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
-// A single lifecycle hook: one shell command, optionally scoped to a set of
-// tools (tool events only) and with its own timeout.
+/**
+ * A single lifecycle hook: one shell command, optionally scoped to a set of
+ * tools (tool events only) and with its own timeout.
+ */
 export interface HookDefinition {
-	// Shell command to run. Receives hook context via NANOCODER_* env vars.
+	/** Shell command to run. Receives hook context via NANOCODER_* env vars. */
 	command: string;
-	// Tool names this hook applies to. Omitted means "every tool".
-	// Ignored by non-tool events.
+	/**
+	 * Tool names this hook applies to. Omitted means "every tool".
+	 * Ignored by non-tool events.
+	 */
 	matchTools?: string[];
-	// Milliseconds before the hook is killed. Defaults to 30s.
-	// A timed-out hook never blocks — only a deliberate non-zero exit does.
+	/**
+	 * Milliseconds before the hook is killed. Defaults to 30s, except
+	 * `session-end`, which defaults to 2s so it fits inside the shutdown budget.
+	 * A timed-out hook never blocks — only a deliberate non-zero exit does.
+	 */
 	timeout?: number;
-	// Optional label used in transcripts and /doctor instead of the command.
+	/** Optional label used in transcripts and /doctor instead of the command. */
 	name?: string;
 }
 
+/** Lifecycle hooks keyed by event. Every event is optional. */
 export type HooksConfig = Partial<Record<HookEvent, HookDefinition[]>>;
 
 // Note: temperature is intentionally excluded from this interface.
@@ -271,6 +279,12 @@ export interface DiskNanocoderConfig {
 	disabledTools?: string[];
 	/** Custom system prompt — replaces or extends the built-in prompt. */
 	systemPrompt?: SystemPromptConfig;
+	/**
+	 * Shell commands run at fixed points in the agent loop, keyed by lifecycle
+	 * event. Project-local, so this carries the same code-execution weight as
+	 * `mcpServers` above.
+	 */
+	hooks?: HooksConfig;
 	/** Nanocoder-specific tool configurations. */
 	nanocoderTools?: {
 		webSearch?: {

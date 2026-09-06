@@ -484,6 +484,23 @@ test.serial('a pending hook context does not swallow a slash command', async t =
 	t.is(drainPendingHookContext(), 'branch: main');
 });
 
+test.serial(
+	'a pending hook context does not swallow a leading-whitespace slash command',
+	async t => {
+		clearPendingHookContext();
+		addPendingHookContext('branch: main');
+		const {handlers, spies} = setup();
+
+		// Same trap as the `!` case: parseInput trims before testing for `/`, so
+		// an untrimmed local-action check prefixes this one and sends `/help` to
+		// the model as chat.
+		await handlers.handleMessageSubmit('  /help');
+
+		t.is(spies.handleChatMessage.calls.length, 0);
+		t.is(drainPendingHookContext(), 'branch: main');
+	},
+);
+
 test.serial('a chat prompt does receive the buffered hook context', async t => {
 	clearPendingHookContext();
 	addPendingHookContext('branch: main');

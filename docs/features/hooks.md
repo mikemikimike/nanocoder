@@ -84,7 +84,9 @@ Entries without a usable `command` string are dropped with an error in the log r
 | `post-tool-use` | After a tool returns, **including when it fails** | no |
 | `pre-compact` | Before context compaction, automatic or `/compact` | no |
 
-`user-prompt-submit` fires for chat prompts only. A slash command (`/compact`) and a `!` bash passthrough (`!ls`) are local actions that never reach the model, and prefixing either one would break the routing that recognises it. Neither fires the hook, and neither consumes buffered context — it stays queued for the next prompt that actually goes to the model.
+`user-prompt-submit` fires for chat prompts only. A slash command (`/compact`) and a `!` bash passthrough (`!ls`) are local actions that never reach the model, and prefixing either one would break the routing that recognises it. Neither fires the hook, and neither consumes buffered context — it stays queued for the next prompt that actually goes to the model. Leading whitespace makes no difference: `  /compact` is still a slash command.
+
+"Chat prompt" means anything dispatched to the model as a user turn, including the prompt Nanocoder sends on your behalf when you approve a plan in plan mode. A `user-prompt-submit` veto stops that turn the same way it stops one you typed.
 
 Surfaces:
 
@@ -143,7 +145,9 @@ The model sees:
 Error: Blocked by hook "no-env": .env is managed outside the repo. Edit .env.example instead.
 ```
 
-This sits alongside — not inside — the approval policy. The gate runs *before* the approval decision, so a denied tool never renders a confirmation prompt and never reaches the handler; you see the denial, not a diff preview you have to approve first.
+This sits alongside — not inside — the approval policy. In the interactive TUI and in subagents the gate runs *before* the approval decision, so a denied tool never renders a confirmation prompt and never reaches the handler; you see the denial, not a diff preview you have to approve first.
+
+The one surface where the order differs is ACP: the editor owns the permission request there and issues it before Nanocoder runs the tool, so an editor prompt can appear for a call the hook then refuses. The call is still blocked, and the denial still goes back to the model as the reason.
 
 The gate is also applied again at each execution boundary (`processToolUse`, the streaming bash path, the subagent loop), so no surface can reach a handler ungated. The hook itself still runs exactly once per tool call — a hook with side effects, like an audit log, records one line per call, not one per layer.
 
@@ -162,6 +166,8 @@ Anything a hook prints on stdout is put in front of the model:
 
 A hook that prints nothing injects nothing.
 
+`session-start` does not hold up the UI — it runs in the background while the session finishes initializing. It is only waited on at the point it matters, which is the first prompt you submit: if the hook is still running, that submission waits for it rather than letting the context slip to prompt two. So keep `session-start` hooks fast, and give anything genuinely slow its own short `timeout` — the default is 30 seconds, and it is your first prompt that pays for it.
+
 ## Security
 
 Hooks are project-local shell commands, so `agents.config.json` in a repository is a code-execution surface — exactly like the `mcpServers` in the same file, and like `.nanocoder/tools/`. All of them are gated by the directory-trust prompt you accept the first time Nanocoder runs in a directory. Treat an untrusted repository's `agents.config.json` the way you would treat its `package.json` scripts, and use `/doctor` to see what a project has wired up.
@@ -179,3 +185,5 @@ Hooks are project-local shell commands, so `agents.config.json` in a repository 
 - **A `session-end` hook never finishes.** It is bounded by the shutdown budget, not by its own `timeout` — see [`session-end` runs on a shutdown budget](#session-end-runs-on-a-shutdown-budget).
 - **A global hook stopped working in one project.** That project defines its own `hooks` block, and hooks are not merged — the nearest one wins outright.
 - **`session-start` context never appeared.** It is prepended to your next *chat* prompt. A slash command or a `!` command leaves it queued.
+- **The first prompt of a session hangs.** A slow `session-start` hook is still running — the first submission waits for it so the context isn't lost. Give it a shorter `timeout`.
+- **An editor shows me a permission prompt for a tool the hook blocks.** ACP only: the editor asks before Nanocoder runs the tool. The veto still lands, and the tool still doesn't run.
